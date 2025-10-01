@@ -8,6 +8,8 @@ public static class EndpointsMappingExtension
     {
         endpoints.MapAuthEndpoints();
         endpoints.MapStreamEndpoints();
+        endpoints.MapStreamManagerEndpoints();
+        endpoints.MapUserEndpoints();
         return endpoints;
     }
 }

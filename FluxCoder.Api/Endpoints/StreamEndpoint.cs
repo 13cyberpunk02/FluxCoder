@@ -34,6 +34,18 @@ public static class StreamEndpoint
             .WithName("CreateStream")
             .WithTags("Streams");
         
+        group.MapPut("/", UpdateStream)
+            .RequireAuthorization(policy => policy.RequireRole("Admin"))
+            .WithSummary("Обновить видео поток")
+            .WithName("UpdateStream")
+            .WithTags("Streams");
+        
+        group.MapDelete("/{id:int}", DeleteStream)
+            .RequireAuthorization(policy => policy.RequireRole("Admin"))
+            .WithSummary("Удалить видео поток")
+            .WithName("DeleteStream")
+            .WithTags("Streams");
+        
         return group;
     }
 
@@ -94,5 +106,37 @@ public static class StreamEndpoint
         );
 
         return Results.Created($"/api/streams/{stream.Id}", response);
+    }
+
+    private static async Task<IResult> UpdateStream(
+        int id,
+        UpdateStreamRequest request,
+        StreamService streamService,
+        CancellationToken ct = default)
+    {
+        var stream = await streamService.UpdateStreamAsync(id, request, ct);
+
+        if (stream is null)
+            return Results.NotFound(new { message = "Видео поток не найден" });
+        
+        return Results.Ok(new StreamResponse(
+            stream.Id,
+            stream.Name,
+            stream.InputUrl,
+            stream.OutputUrl,
+            stream.Status,
+            stream.FFmpegArguments,
+            stream.CreatedAt,
+            stream.LastStartedAt
+        ));
+    }
+
+    private static async Task<IResult> DeleteStream(int id, StreamService streamService, CancellationToken ct = default)
+    {
+        var deleted = await streamService.DeleteStreamAsync(id, ct);
+
+        return !deleted
+            ? Results.NotFound(new { message = "Видео поток не найден" }) 
+            : Results.Ok(new { message = "Видео поток удален" });
     }
 }

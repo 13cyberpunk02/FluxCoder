@@ -33,9 +33,9 @@ public class StreamService
         return stream;
     }
     
-    public async Task<Stream?> UpdateStreamAsync(int id, UpdateStreamRequest request)
+    public async Task<Stream?> UpdateStreamAsync(int id, UpdateStreamRequest request, CancellationToken cancellationToken = default)
     {
-        var stream = await _db.Streams.FindAsync(id);
+        var stream = await _db.Streams.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         
         if (stream == null)
             return null;
@@ -45,37 +45,33 @@ public class StreamService
         stream.OutputUrl = request.OutputUrl;
         stream.FFmpegArguments = request.FFmpegArguments;
 
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
         return stream;
     }
 
-    public async Task<bool> DeleteStreamAsync(int id)
+    public async Task<bool> DeleteStreamAsync(int id, CancellationToken cancellationToken = default)
     {
-        var stream = await _db.Streams.FindAsync(id);
+        var stream = await _db.Streams.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         
         if (stream == null)
             return false;
 
         _db.Streams.Remove(stream);
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
         return true;
     }
 
-    public async Task<Stream?> GetStreamByIdAsync(int id)
-    {
-        return await _db.Streams.FindAsync(id);
-    }
+    public async Task<Stream?> GetStreamByIdAsync(int id, CancellationToken ct = default)
+        => await _db.Streams.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
 
-    public async Task<List<Stream>> GetAllStreamsAsync()
-    {
-        return await _db.Streams.ToListAsync();
-    }
+    public async Task<List<Stream>> GetAllStreamsAsync(CancellationToken ct = default)
+        => await _db.Streams.AsNoTracking().ToListAsync(ct);
     
-    public async Task<Stream?> UpdateStreamStatusAsync(int id, string status)
+    public async Task<Stream?> UpdateStreamStatusAsync(int id, string status, CancellationToken ct = default)
     {
-        var stream = await _db.Streams.FindAsync(id);
+        var stream = await _db.Streams.FirstOrDefaultAsync(x => x.Id == id, ct);
         
         if (stream == null)
             return null;
@@ -85,7 +81,7 @@ public class StreamService
         if (status == "Running")
             stream.LastStartedAt = DateTime.UtcNow;
 
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(ct);
 
         return stream;
     }
