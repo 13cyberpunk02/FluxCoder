@@ -20,6 +20,7 @@ public static class AddExtensions
         services.AddOwnAuthentication(configuration);
         services.AddCustomCors();
         services.AddScoped<JwtService>();
+        services.AddScoped<StreamService>();
         return services;
     } 
     

@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using FluxCoder.Api.Data;
 using FluxCoder.Api.DTOs.Stream;
+using FluxCoder.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace FluxCoder.Api.Endpoints;
@@ -24,6 +26,12 @@ public static class StreamEndpoint
             .RequireAuthorization()
             .WithSummary("Получить видео поток по его Id")
             .WithName("GetStreamById")
+            .WithTags("Streams");
+        
+        group.MapPost("/", CreateStream)
+            .RequireAuthorization(policy => policy.RequireRole("Admin"))
+            .WithSummary("Создать видео поток")
+            .WithName("CreateStream")
             .WithTags("Streams");
         
         return group;
@@ -63,6 +71,28 @@ public static class StreamEndpoint
             stream.CreatedAt,
             stream.LastStartedAt
         ));
+    }
+
+    private static async Task<IResult> CreateStream(
+        CreateStreamRequest request,
+        StreamService streamService,
+        ClaimsPrincipal  user,
+        CancellationToken ct = default)
+    {
+        var userId = UserContextService.GetUserId(user);
+        var stream = await streamService.CreateStreamAsync(request, userId);
         
+        var response = new StreamResponse(
+            stream.Id,
+            stream.Name,
+            stream.InputUrl,
+            stream.OutputUrl,
+            stream.Status,
+            stream.FFmpegArguments,
+            stream.CreatedAt,
+            stream.LastStartedAt
+        );
+
+        return Results.Created($"/api/streams/{stream.Id}", response);
     }
 }
