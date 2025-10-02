@@ -14,6 +14,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+       
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -25,15 +26,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Stream>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.StreamKey).IsUnique(); // StreamKey должен быть уникальным
             entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.StreamKey).HasMaxLength(50).IsRequired();
             entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.VideoCodec).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.AudioCodec).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.Quality).HasMaxLength(20).IsRequired();
             
             entity.HasOne(e => e.CreatedBy)
                 .WithMany()
                 .HasForeignKey(e => e.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
-        
+
         modelBuilder.Entity<TranscodingJob>(entity =>
         {
             entity.HasKey(e => e.Id);

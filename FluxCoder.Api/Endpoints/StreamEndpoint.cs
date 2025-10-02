@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using FluxCoder.Api.Common.Filters;
 using FluxCoder.Api.Data;
 using FluxCoder.Api.DTOs.Stream;
+using FluxCoder.Api.Extensions;
 using FluxCoder.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,7 +16,8 @@ public static class StreamEndpoint
             .MapGroup("api/streams")
             .WithTags("Видео-потоки")
             .RequireAuthorization()
-            .WithOpenApi();
+            .WithOpenApi()
+            .AddEndpointFilter<RequestLoggingFilter>();
         
         group.MapGet("/", GetStreamsAsync)
             .RequireAuthorization()
@@ -32,13 +35,15 @@ public static class StreamEndpoint
             .RequireAuthorization(policy => policy.RequireRole("Admin"))
             .WithSummary("Создать видео поток")
             .WithName("CreateStream")
-            .WithTags("Streams");
+            .WithTags("Streams")
+            .WithRequestValidation<CreateStreamRequest>();
         
         group.MapPut("/", UpdateStream)
             .RequireAuthorization(policy => policy.RequireRole("Admin"))
             .WithSummary("Обновить видео поток")
             .WithName("UpdateStream")
-            .WithTags("Streams");
+            .WithTags("Streams")
+            .WithRequestValidation<UpdateStreamRequest>();
         
         group.MapDelete("/{id:int}", DeleteStream)
             .RequireAuthorization(policy => policy.RequireRole("Admin"))
@@ -49,40 +54,53 @@ public static class StreamEndpoint
         return group;
     }
 
-    private static async Task<IResult> GetStreamsAsync(AppDbContext db, CancellationToken ct = default)
+    private static async Task<IResult> GetStreamsAsync(StreamService streamService, CancellationToken ct = default)
     {
-        var streams = await db.Streams
-            .Select(s => new StreamResponse(
-                s.Id,
-                s.Name,
-                s.InputUrl,
-                s.OutputUrl,
-                s.Status,
-                s.FFmpegArguments,
-                s.CreatedAt,
-                s.LastStartedAt))
-            .ToListAsync(ct);
-        
-        return Results.Ok(streams);
+        var streams = await streamService.GetAllStreamsAsync(ct);
+    
+        var response = streams.Select(s => new StreamResponse(
+            s.Id,
+            s.Name,
+            s.InputUrl,
+            s.StreamKey,
+            s.VideoCodec,
+            s.AudioCodec,
+            s.Quality,
+            s.VideoBitrate,
+            s.AudioBitrate,
+            s.Status,
+            streamService.GetHlsUrl(s),
+            s.CreatedAt,
+            s.LastStartedAt
+        ));
+
+        return Results.Ok(response);
     }
 
-    private static async Task<IResult> GetStreamById(int id, AppDbContext db, CancellationToken ct = default)
+    private static async Task<IResult> GetStreamById(int id, StreamService streamService, CancellationToken ct = default)
     {
-        var stream = await db.Streams.FirstOrDefaultAsync(x => x.Id.Equals(id), ct);
+        var stream = await streamService.GetStreamByIdAsync(id, ct);
+    
+        if (stream == null)
+            return Results.NotFound(new { message = "Видео поток не найден" });
 
-        if (stream is null)
-            return Results.NotFound();
-        
-        return Results.Ok(new StreamResponse(
+        var response = new StreamResponse(
             stream.Id,
             stream.Name,
             stream.InputUrl,
-            stream.OutputUrl,
+            stream.StreamKey,
+            stream.VideoCodec,
+            stream.AudioCodec,
+            stream.Quality,
+            stream.VideoBitrate,
+            stream.AudioBitrate,
             stream.Status,
-            stream.FFmpegArguments,
+            streamService.GetHlsUrl(stream),
             stream.CreatedAt,
             stream.LastStartedAt
-        ));
+        );
+
+        return Results.Ok(response);
     }
 
     private static async Task<IResult> CreateStream(
@@ -91,16 +109,27 @@ public static class StreamEndpoint
         ClaimsPrincipal  user,
         CancellationToken ct = default)
     {
+        var existing = await streamService.GetStreamByKeyAsync(request.StreamKey, ct);
+        if (existing != null)
+        {
+            return Results.BadRequest(new { message = "Ключ потока уже существует" });
+        }
+
         var userId = UserContextService.GetUserId(user);
-        var stream = await streamService.CreateStreamAsync(request, userId);
-        
+        var stream = await streamService.CreateStreamAsync(request, userId, ct);
+
         var response = new StreamResponse(
             stream.Id,
             stream.Name,
             stream.InputUrl,
-            stream.OutputUrl,
+            stream.StreamKey,
+            stream.VideoCodec,
+            stream.AudioCodec,
+            stream.Quality,
+            stream.VideoBitrate,
+            stream.AudioBitrate,
             stream.Status,
-            stream.FFmpegArguments,
+            streamService.GetHlsUrl(stream),
             stream.CreatedAt,
             stream.LastStartedAt
         );
@@ -112,27 +141,49 @@ public static class StreamEndpoint
         int id,
         UpdateStreamRequest request,
         StreamService streamService,
+        FFmpegService ffmpegService,
         CancellationToken ct = default)
     {
-        var stream = await streamService.UpdateStreamAsync(id, request, ct);
+        if (ffmpegService.IsStreamRunning(id))
+        {
+            return Results.BadRequest(new { message = "Невозможно обновить текущий видео поток. Сначала остановите его." });
+        }
 
-        if (stream is null)
-            return Results.NotFound(new { message = "Видео поток не найден" });
-        
-        return Results.Ok(new StreamResponse(
+        var stream = await streamService.UpdateStreamAsync(id, request, ct);
+    
+        if (stream == null)
+            return Results.NotFound(new { message = "Stream not found" });
+
+        var response = new StreamResponse(
             stream.Id,
             stream.Name,
             stream.InputUrl,
-            stream.OutputUrl,
+            stream.StreamKey,
+            stream.VideoCodec,
+            stream.AudioCodec,
+            stream.Quality,
+            stream.VideoBitrate,
+            stream.AudioBitrate,
             stream.Status,
-            stream.FFmpegArguments,
+            streamService.GetHlsUrl(stream),
             stream.CreatedAt,
             stream.LastStartedAt
-        ));
+        );
+
+        return Results.Ok(response);
     }
 
-    private static async Task<IResult> DeleteStream(int id, StreamService streamService, CancellationToken ct = default)
+    private static async Task<IResult> DeleteStream(
+        int id, 
+        StreamService streamService,
+        FFmpegService ffmpegService,
+        CancellationToken ct = default)
     {
+        if (ffmpegService.IsStreamRunning(id))
+        {
+            ffmpegService.StopStream(id);
+        }
+        
         var deleted = await streamService.DeleteStreamAsync(id, ct);
 
         return !deleted

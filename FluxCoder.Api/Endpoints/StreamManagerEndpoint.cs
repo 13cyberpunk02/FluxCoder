@@ -86,7 +86,7 @@ public static class StreamManagerEndpoint
         
         var updatedStream = await streamService.UpdateStreamStatusAsync(id, newStatus, cancellationToken);
         
-        return Results.Ok(new StreamControlResponse(id, newStatus, message));
+        return Results.Ok();
     }
     
 }
